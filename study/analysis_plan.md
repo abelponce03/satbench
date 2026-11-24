@@ -88,7 +88,75 @@ values favour the AI variant. *Seen* = instances the AI variant's developers cou
 - **Robustness checks (reported, not confirmatory):** PAR-10; ranks instead of PAR-2;
   excluding SAT or UNSAT instances; per-family estimates; leave-one-family-out stability of H1.
 
-## 6. Reproducibility
+## 6. Amendment 1 (2026-11-24, before main data collection)
+
+Made after the tooling pilot (10 jobs; excluded from every analysis) and before any
+main-study block ran. It is purely additive: every block of the original plan is kept unchanged
+(`study/blocks.csv` contains all 4260 original block ids), and §1–§5 still define the
+confirmatory analyses. Added: 361 blocks (4621 in total), new per-run measurements, and the
+pre-specified analyses below.
+
+### 6.1 New measurements (recorded for every run)
+
+- **Retired user-space instructions and cycles** of the whole process tree, via
+  `perf_event_open` attached before the solver starts (start gate). In tests on the same binary
+  and input, instruction counts varied by 0.00017 % across repetitions (CPU time: 0.23 %).
+  Instruction counts depend on the binary and the input, not on the host's clock or
+  microarchitecture.
+- **CPU time per executable**, sampled. It separates preprocessing (e.g. Satsuma) from search, and
+  shows which LymphoSAT sub-solver handled each instance.
+- Excerpts of solver comment lines, the end of stderr, and GBD base features of every file run.
+- Per job: a **concurrent calibration** (both cores at once) next to the solo calibrations, which
+  measures interference between the two members of a block.
+- **Replicates:** 2 % of blocks run twice on different hosts (test–retest).
+- **Encoding seeds:** `s2-rcl` and `s3-rcl` on a fixed quarter of the perturbed instances, so each
+  of those instances has three order-perturbed encodings.
+
+### 6.2 Additional pre-specified analyses (secondary unless stated)
+
+1. **Host-invariant outcome (co-primary for H1).**
+   - Every host's speed is estimated from its calibration runs as instructions per CPU-second (IPS).
+   - A common instruction budget is set: B = 0.95 × 5000 s × min(IPS) over retained hosts.
+   - A run is *solved within B* if it is SAT/UNSAT and used at most B instructions. Its
+     instruction-PAR-2 is its instruction count if solved, 2B otherwise.
+   - Censoring is then identical on every host by construction. H1 is tested with this outcome
+     exactly as in §5, and both versions are reported.
+2. **Encoding-lottery variance.**
+   - Model: log CPU time = instance effect + encoding effect, fitted on the instances with
+     original + s1/s2/s3-rcl.
+   - Reported: the intraclass correlation and the within-instance (encoding) standard deviation.
+   - Also reported: the share of instance-level win/loss outcomes of each unit that flip between
+     encodings, which is the "encoding noise floor" of a paired solver comparison.
+3. **Test–retest reliability:** ICC and Bland–Altman limits for log CPU time and for log
+   instructions on replicate pairs.
+4. **Interference:** concurrent-to-solo calibration time ratio per job. Sensitivity of H1 to
+   excluding jobs whose ratio exceeds 1.15.
+5. **Time-horizon curves:** r(T′) for T′ on a log grid from 10 s to 5000 s (PAR-2 recomputed at
+   every horizon from the same runs). Does the AI advantage depend on the time limit the solvers
+   were tuned for?
+6. **Distribution-shift gradient (directional hypothesis H6).** The AI variant's advantage
+   decreases with an instance's distance from its development data.
+   - Distance: Euclidean distance, in standardised log-transformed GBD base features, to the
+     nearest instance of that variant's development set (docs/exposure.md).
+   - Test: Spearman correlation between the per-instance paired advantage and the distance,
+     one-sided, Holm across the primary units.
+7. **Mechanism.** CPU share of preprocessing vs search per unit, and LymphoSAT's dispatch rate to
+   targeted sub-solvers on seen vs unseen families and under perturbation. Does dispatch explain
+   its advantage, and does reordering defeat its matchers?
+8. **Correctness audit.** Any UNSAT claim on an instance for which some run produced a verified
+   model is counted as wrong, together with the WRONG answers of §1 RQ4.
+9. **External validity.** On instances and solvers shared with the SAT Competition 2026 results,
+   Spearman correlation of log CPU times and agreement on solved status.
+10. **Censored mixed model (robustness).** A Bayesian accelerated-failure-time model for log CPU
+    time, with right-censoring at 5000 s:
+    - Fixed effects: solver × exposure set.
+    - Random effects: instance and encoding.
+    - Host covariate: speed (IPS).
+    - Reported as speed-up factors with 95 % credible intervals.
+11. **Size of the AI modification.** Lines changed between each AI variant and its base, from the
+    archives, against the unit's generalisation gap (descriptive; n = 5).
+
+## 7. Reproducibility
 
 Solver sources pinned by SHA-256 and built offline in a container whose image digest is
 recorded; GBD snapshot hash; every seed above; harness code and all raw run records released

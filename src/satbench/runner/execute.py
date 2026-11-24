@@ -130,13 +130,23 @@ def execute(
         if cpus:
             os.sched_setaffinity(0, cpus)
 
+    # Start gate: the child shell blocks on fd 3 until the counters are attached, then execs the
+    # solver, so no instruction of the solver escapes the count (an attach race lost ~10 % of a
+    # short run in a probe). The gate itself costs a few hundred instructions.
+    gate_r, gate_w = os.pipe()
+    gated = ["/bin/sh", "-c", 'read _ <&3; exec 3<&-; exec "$@"', "satbench-gate", *cmd]
     with open(stdout, "wb") as out, open(stderr, "wb") as err:
         start = time.monotonic()
-        proc = subprocess.Popen(
-            cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, cwd=cwd,
-            start_new_session=True, preexec_fn=preexec,
-        )
+        try:
+            proc = subprocess.Popen(
+                gated, stdout=out, stderr=err, stdin=subprocess.DEVNULL, cwd=cwd,
+                start_new_session=True, preexec_fn=preexec, pass_fds=(gate_r,),
+            )
+        finally:
+            os.close(gate_r)
         counters = open_counters(proc.pid)  # None-safe: empty if the host forbids it
+        os.write(gate_w, b"go\n")
+        os.close(gate_w)
         ps = psutil.Process(proc.pid)
         per_pid: dict[int, list] = {}
         peak_rss, sampled_cpu, limit_hit = 0.0, 0.0, ""

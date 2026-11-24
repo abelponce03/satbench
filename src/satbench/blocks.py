@@ -113,7 +113,7 @@ def plan_blocks(instances: pd.DataFrame, design: Design) -> pd.DataFrame:
                         replicate_of=""))
     blocks = pd.DataFrame(rows)
     # Test-retest replicates: the same block again, on a different (random) host.
-    rep_frac = design.raw.get("replicate_fraction", 0.0)
+    rep_frac = design.raw.get("replication", {}).get("fraction", 0.0)
     if rep_frac:
         ranked_blocks = sorted(blocks.block_id, key=lambda b: rank_key(design.raw.get("selection_seed", 0) + 3, b))
         chosen = set(ranked_blocks[: int(round(len(blocks) * rep_frac))])

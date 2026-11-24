@@ -28,6 +28,10 @@ on:
         description: "block plan (path inside the repository)"
         required: true
         default: "study/blocks.csv"
+      design_file:
+        description: "design (study/design.toml; study/design-pilot.toml for tooling pilots)"
+        required: true
+        default: "study/design.toml"
 
 permissions:
   contents: read
@@ -46,6 +50,7 @@ jobs:
           IMAGE: ${{ inputs.image }}
           MAXP: ${{ inputs.max_parallel }}
           BLOCKS: ${{ inputs.blocks_file }}
+          DESIGN: ${{ inputs.design_file }}
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, os, re, sys
@@ -59,6 +64,8 @@ jobs:
               sys.exit("image must be ghcr.io/<owner>/satbench-solvers@sha256:<digest>")
           if not re.fullmatch(r"study/[\w.-]+\.csv", os.environ["BLOCKS"]):
               sys.exit("blocks_file must be study/<name>.csv")
+          if not re.fullmatch(r"study/[\w.-]+\.toml", os.environ["DESIGN"]):
+              sys.exit("design_file must be study/<name>.toml")
           print("jobs=" + json.dumps(list(range(first, last + 1))))
           EOF
 
@@ -86,10 +93,11 @@ jobs:
           HOME: /tmp
           JOB: ${{ matrix.job }}
           BLOCKS: ${{ inputs.blocks_file }}
+          DESIGN: ${{ inputs.design_file }}
           # harness code from this commit (recorded as GITHUB_SHA); solver binaries from the image
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
-          satbench blocks-run --design study/design.toml --blocks "$BLOCKS" \
+          satbench blocks-run --design "$DESIGN" --blocks "$BLOCKS" \
             --jobs "$JOB" --solvers-dir /opt/solvers --instances /tmp/instances \
             --results "results/job-$JOB.jsonl" --logs "logs/job-$JOB"
       - name: Keep solver logs only for unexpected outcomes (artifact size)

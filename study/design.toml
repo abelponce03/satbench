@@ -14,6 +14,19 @@ packing_seed = 4049         # random assignment of blocks to jobs / hosts
 # graph colouring (symmetry handling depends on presentation order). They are measured separately.
 perturbations = ["s1-rcl", "s1-f"]
 
+# Amendment 1 (before main data collection; see study/analysis_plan.md §8).
+# Extra order-perturbation seeds on a fixed quarter of the perturbed instances: separates the
+# within-instance "encoding lottery" variance from between-instance variance (Brglez et al.'s
+# equivalence-class method), and estimates how much of any solver difference is encoding luck.
+[extra_perturbations]
+variants = ["s2-rcl", "s3-rcl"]
+fraction_of_perturbed = 0.25
+
+# Amendment 1: test-retest replicates. This share of blocks is run a second time on another
+# (random) host, which measures end-to-end measurement reliability directly.
+[replication]
+fraction = 0.02
+
 # Units = solver pairs run concurrently on one host, one physical core each.
 # role = "primary":   isolates an AI modification (same author / declared base). All sets;
 #                     perturbed variants on the perturbation subsample.
