@@ -7,13 +7,32 @@ on:
       image:
         description: "solver image by digest"
         required: true
+      count:
+        description: "number of parallel probe jobs (fleet sampling), 1-40"
+        required: true
+        default: "1"
 
 permissions:
   contents: read
   packages: read
 
 jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      ids: ${{ steps.m.outputs.ids }}
+    steps:
+      - id: m
+        env:
+          COUNT: ${{ inputs.count }}
+        run: |
+          python3 -c "import os,json,re,sys; c=os.environ['COUNT']; re.fullmatch(r'\d{1,2}',c) and 1<=int(c)<=40 or sys.exit('count 1-40'); print('ids='+json.dumps(list(range(int(c)))))" >> "$GITHUB_OUTPUT"
   probe:
+    needs: matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        id: ${{ fromJSON(needs.matrix.outputs.ids) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     container:
