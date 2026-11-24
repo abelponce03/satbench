@@ -1,0 +1,9 @@
+block_id,solver_a,solver_b,role,origin_hash,family,variant,known_result,instance_set,replicate_of,job
+6171378771ea1d3a,satsuma-iter-kissat,cadical3-sc2026,reference,9e6c2e7b0d6f58e449716deb9305525a,random-circuits,original,sat,comp2425,,0
+5b067afd7802805f,kissat-4.0.2,lymphosat,primary,fa50d69adc71fe4daf7f9088cd02864a,random-circuits,original,sat,comp2425,,0
+88200412c7faa1c4,kissat-sc2026,kissat-evolve-rb,secondary,12535b3264a9c88bac14522171b497ef,datapath-equivalence-checking,original,unsat,clean2026,,0
+9ec4a6eb2ef51b73,kissat-mab-hypre,kissat-mab-hypre-evolve,primary,79007609071bfbc2fd960db57d72836c,syndrome-decoding,original,unknown,clean2026,,0
+9280503806f6df61,satsuma-iter-kissat,cadical3-sc2026,reference,8ce8dbfecaf77bdc2229bf552cc757a8,school-timetabling,original,unknown,clean2026,,1
+20f20f6f69fd1b94,ae-kissat-mab-sc2025,kissat-mab-eae1,primary,9ba8145e0d02318dea5507fc3ba03472,graph-coloring,original,unsat,clean2026,,1
+4ebcd3683e1710bd,satsuma-iter-kissat,cadical3-sc2026,reference,56913ff910c49dd5010653720970d944,grs-fp-comm,original,unsat,comp2425,,1
+57c8fe92a3c00344,kissat-mab-hypre,kissat-mab-hypre-evolve,primary,6cd46641ebd4c840b8f116d14ca17dfd,stable-semantics,original,sat,clean2026,,1
