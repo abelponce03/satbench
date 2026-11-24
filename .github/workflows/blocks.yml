@@ -1,37 +1,37 @@
-# Execute a range of jobs of the blocked design (study/blocks.csv) on GitHub-hosted runners.
-# Each matrix job = one host: calibration, up to `blocks_per_job` blocks (two solvers in
-# parallel, one physical core each), calibration. Results are uploaded as artifacts and collected
-# with `scripts/collect.sh`. A GitHub workflow run holds at most 256 matrix jobs, so the study is
-# dispatched in ranges (scripts/dispatch.sh).
+# Execute one wave of the blocked design on GitHub-hosted runners.
 #
-# Only users with write access can dispatch this workflow; inputs are still passed through
-# environment variables and validated, never interpolated into shell code.
+# A wave is a file waves/wave-NNN.csv on the `results` branch, written by the orchestrator
+# (orchestrator.yml): pending blocks packed into jobs 0..k. Each matrix job = one host:
+# host check (design [hosts]), calibration, up to `blocks_per_job` blocks (two solvers in
+# parallel, one physical core each), calibration. Results are uploaded as artifacts
+# `wave-NNN-job-J`, which the orchestrator ingests into the `results` branch.
+#
+# Only users with write access (and the orchestrator's token) can dispatch this workflow; inputs
+# are passed through environment variables and validated, never interpolated into shell code.
 name: blocks
+run-name: blocks wave ${{ inputs.wave }} [${{ inputs.results_branch }}]
 
 on:
   workflow_dispatch:
     inputs:
-      first:
-        description: "first job number"
-        required: true
-      last:
-        description: "last job number (inclusive, at most first+255)"
+      wave:
+        description: "wave number (three digits, e.g. 007)"
         required: true
       image:
         description: "solver image by digest, e.g. ghcr.io/OWNER/satbench-solvers@sha256:..."
         required: true
       max_parallel:
-        description: "concurrent jobs (be considerate with shared CI capacity)"
+        description: "concurrent jobs of this wave"
         required: true
         default: "10"
-      blocks_file:
-        description: "block plan (path inside the repository)"
-        required: true
-        default: "study/blocks.csv"
       design_file:
         description: "design (study/design.toml; study/design-pilot.toml for tooling pilots)"
         required: true
         default: "study/design.toml"
+      results_branch:
+        description: "branch holding waves/ and results (results, or results-test for machinery tests)"
+        required: true
+        default: "results"
 
 permissions:
   contents: read
@@ -43,30 +43,33 @@ jobs:
     outputs:
       jobs: ${{ steps.m.outputs.jobs }}
     steps:
+      - name: Validate branch
+        env:
+          RB: ${{ inputs.results_branch }}
+        run: '[[ "$RB" == "results" || "$RB" == "results-test" ]] || { echo "bad results_branch"; exit 1; }'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.results_branch }}
+          path: res
       - id: m
         env:
-          FIRST: ${{ inputs.first }}
-          LAST: ${{ inputs.last }}
+          WAVE: ${{ inputs.wave }}
           IMAGE: ${{ inputs.image }}
           MAXP: ${{ inputs.max_parallel }}
-          BLOCKS: ${{ inputs.blocks_file }}
           DESIGN: ${{ inputs.design_file }}
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
-          import json, os, re, sys
-          first, last, maxp = os.environ["FIRST"], os.environ["LAST"], os.environ["MAXP"]
-          if not all(re.fullmatch(r"\d{1,6}", v) for v in (first, last, maxp)):
-              sys.exit("first/last/max_parallel must be non-negative integers")
-          first, last = int(first), int(last)
-          if not (0 <= last - first < 256):
-              sys.exit("range must contain 1..256 jobs")
+          import csv, json, os, re, sys
+          wave, maxp = os.environ["WAVE"], os.environ["MAXP"]
+          if not re.fullmatch(r"\d{3}", wave) or not re.fullmatch(r"\d{1,2}", maxp):
+              sys.exit("wave must be NNN, max_parallel an integer")
           if not re.fullmatch(r"ghcr\.io/[\w.-]+/satbench-solvers@sha256:[0-9a-f]{64}", os.environ["IMAGE"]):
               sys.exit("image must be ghcr.io/<owner>/satbench-solvers@sha256:<digest>")
-          if not re.fullmatch(r"study/[\w.-]+\.csv", os.environ["BLOCKS"]):
-              sys.exit("blocks_file must be study/<name>.csv")
           if not re.fullmatch(r"study/[\w.-]+\.toml", os.environ["DESIGN"]):
               sys.exit("design_file must be study/<name>.toml")
-          print("jobs=" + json.dumps(list(range(first, last + 1))))
+          with open(f"res/waves/wave-{wave}.csv") as f:
+              jobs = sorted({int(r["job"]) for r in csv.DictReader(f)})
+          print("jobs=" + json.dumps(jobs))
           EOF
 
   run:
@@ -88,28 +91,33 @@ jobs:
         job: ${{ fromJSON(needs.matrix.outputs.jobs) }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.results_branch }}
+          path: res
+          sparse-checkout: waves
       - name: Run job
         env:
           HOME: /tmp
           JOB: ${{ matrix.job }}
-          BLOCKS: ${{ inputs.blocks_file }}
+          WAVE: ${{ inputs.wave }}
           DESIGN: ${{ inputs.design_file }}
           # harness code from this commit (recorded as GITHUB_SHA); solver binaries from the image
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
-          satbench blocks-run --design "$DESIGN" --blocks "$BLOCKS" \
+          satbench blocks-run --design "$DESIGN" --blocks "res/waves/wave-$WAVE.csv" \
             --jobs "$JOB" --solvers-dir /opt/solvers --instances /tmp/instances \
-            --results "results/job-$JOB.jsonl" --logs "logs/job-$JOB"
+            --results "out/wave-$WAVE-job-$JOB.jsonl" --logs "out/logs-$JOB"
       - name: Keep solver logs only for unexpected outcomes (artifact size)
         if: always()
         env:
           JOB: ${{ matrix.job }}
-        run: python3 -m satbench.tools.prune_logs "results/job-$JOB.jsonl" "logs/job-$JOB" || true
+          WAVE: ${{ inputs.wave }}
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: python3 -m satbench.tools.prune_logs "out/wave-$WAVE-job-$JOB.jsonl" "out/logs-$JOB" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: results-job-${{ matrix.job }}
-          path: |
-            results/
-            logs/
+          name: wave-${{ inputs.wave }}-job-${{ matrix.job }}
+          path: out/
           retention-days: 90

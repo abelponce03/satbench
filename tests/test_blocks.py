@@ -116,3 +116,15 @@ def test_run_job_end_to_end(tmp_path):
             tmp_path / "logs")
     again = [json.loads(l) for l in results.read_text().splitlines()]
     assert sum(r["kind"] == "run" for r in again) == before
+
+
+def test_rejected_host_leaves_blocks_pending(tmp_path):
+    d = design(hosts={"accept_cpu_models": ["Some CPU nobody has"]})
+    blocks = pd.DataFrame(dict(block_id=["b1"], job=[0], solver_a="x", solver_b="y",
+                               origin_hash="h", family="f", variant="original",
+                               known_result="unknown", instance_set="seen"))
+    res = tmp_path / "r.jsonl"
+    n = run_job(blocks, 0, d, tmp_path, InstanceCache(tmp_path), res, tmp_path / "logs")
+    recs = [json.loads(l) for l in res.read_text().splitlines()]
+    assert n == 0 and [r["kind"] for r in recs] == ["host_rejected"]
+    assert recs[0]["host_cpu_model"]

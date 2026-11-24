@@ -188,6 +188,31 @@ def cmd_blocks_pending(a):
     print(f"{len(done)} blocks done, {len(pending)} pending in {pending.job.nunique()} new jobs")
 
 
+def cmd_blocks_wave(a):
+    """Next wave: pending blocks (not completed, not in an in-flight wave), in plan order."""
+    from .blocks import Design, _done
+
+    design = Design.load(Path(a.design))
+    blocks = pd.read_csv(a.blocks)
+    done: set[str] = set()
+    for f in Path(a.results_dir).rglob("*.jsonl") if Path(a.results_dir).exists() else []:
+        done |= _done(f)
+    inflight: set[str] = set()
+    for w in a.inflight or []:
+        if Path(w).exists():
+            inflight |= set(pd.read_csv(w).block_id)
+    pending = blocks[~blocks.block_id.isin(done | inflight)].reset_index(drop=True)
+    wave = pending.head(a.max_jobs * design.blocks_per_job).copy()
+    wave["job"] = wave.index // design.blocks_per_job
+    summary = dict(total=len(blocks), done=len(done & set(blocks.block_id)),
+                   inflight=len(inflight), pending=len(pending), wave_blocks=len(wave),
+                   wave_jobs=int(wave.job.nunique()) if len(wave) else 0)
+    if len(wave):
+        Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+        wave.to_csv(a.out, index=False)
+    print(json.dumps(summary))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="satbench")
     sub = ap.add_subparsers(required=True)
@@ -276,6 +301,15 @@ def main(argv=None):
     p.add_argument("--results-dir", required=True)
     p.add_argument("--out", required=True)
     p.set_defaults(fn=cmd_blocks_pending)
+
+    p = sub.add_parser("blocks-wave", help="write the next wave of pending blocks")
+    p.add_argument("--design", default="study/design.toml")
+    p.add_argument("--blocks", default="study/blocks.csv")
+    p.add_argument("--results-dir", required=True)
+    p.add_argument("--inflight", nargs="*", help="wave files still running")
+    p.add_argument("--max-jobs", type=int, default=256)
+    p.add_argument("--out", required=True)
+    p.set_defaults(fn=cmd_blocks_wave)
 
     args = ap.parse_args(argv)
     args.fn(args)

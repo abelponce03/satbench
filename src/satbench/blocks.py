@@ -230,6 +230,14 @@ def run_job(blocks: pd.DataFrame, job: int, design: Design, solvers_dir: Path, c
     lock = threading.Lock()
     results.parent.mkdir(parents=True, exist_ok=True)
 
+    accepted = design.raw.get("hosts", {}).get("accept_cpu_models", [])
+    if accepted and host["cpu_model"] not in accepted:
+        # Wrong hardware: record the host (fleet composition) and leave every block pending.
+        with open(results, "a") as f:
+            f.write(json.dumps(dict(kind="host_rejected", job=job,
+                                    **{f"host_{k}": v for k, v in host.items()})) + "\n")
+        return 0
+
     def emit(rec: dict) -> None:
         rec.update(job=job, **{f"host_{k}": v for k, v in host.items()})
         with lock, open(results, "a") as f:

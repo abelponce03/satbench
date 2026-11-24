@@ -1,2 +1,3 @@
 # Workflow runs of tooling pilots. Their results are excluded from every analysis.
 45477346069  pilot-1  jobs 0-9 of the v1 plan, telemetry v1, T=5000
+45482902357  pilot-2  jobs 0-3 of the amended plan, telemetry v2, T=300

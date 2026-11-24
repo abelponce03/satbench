@@ -156,7 +156,25 @@ pre-specified analyses below.
 11. **Size of the AI modification.** Lines changed between each AI variant and its base, from the
     archives, against the unit's generalisation gap (descriptive; n = 5).
 
-## 7. Reproducibility
+## 7. Amendment 2 (2026-11-24, before main data collection)
+
+- **Hardware.** A sample of 20 GitHub-hosted runners showed six CPU models: Xeon 6975P-C (7),
+  EPYC 9V74 (6), EPYC 7763 (3), Xeon 8573C (2), EPYC 9V45 (1) and Xeon 8370C (1). Only the 6975P-C
+  exposed hardware counters. Only blocks run on the **Intel Xeon 6975P-C** enter the study.
+  - A job on any other host records the host and exits without running blocks; the blocks are
+    retried in later waves.
+  - The exclusion rule §4.1 (minority CPU model) therefore never applies. Rule §4.2 (calibration
+    deviation) still applies, within the single model.
+  - Rejected hosts are reported as fleet-composition data.
+- **Consequence for §6.2.1.** Every retained run has instruction counts. The instruction budget
+  is computed over all retained hosts.
+- **Execution.** The study runs autonomously:
+  - Waves of pending blocks are dispatched by `.github/workflows/orchestrator.yml`, and every
+    result file is ingested into the public `results` branch.
+  - A job whose time budget ends before all its blocks ran leaves them pending; they run in a
+    later wave.
+
+## 8. Reproducibility
 
 Solver sources pinned by SHA-256 and built offline in a container whose image digest is
 recorded; GBD snapshot hash; every seed above; harness code and all raw run records released

@@ -76,6 +76,13 @@ b = "cadical3-sc2026"
 role = "reference"
 note = "SC2026 main-track winner vs CaDiCaL 3"
 
+# Amendment 2 (before main data collection): run only on one CPU model. A 20-job sample of the
+# GitHub fleet found six models; only the Xeon 6975P-C (7/20) exposes hardware counters (and it
+# has AVX-512, which LymphoSAT's random-circuits sub-solver needs). Jobs landing elsewhere record
+# the host and exit within minutes; their blocks stay pending for a later wave.
+[hosts]
+accept_cpu_models = ["Intel(R) Xeon(R) 6975P-C"]
+
 [calibration]
 # Fixed solver and instance, run on both cores at the start and end of every job. The instance
 # is UNSAT (runtime less dependent on search luck than SAT) and took kissat 57 s in SC2026.

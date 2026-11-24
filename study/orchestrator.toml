@@ -1,0 +1,10 @@
+# Autonomous execution of the study (.github/workflows/orchestrator.yml reads this file).
+# Set enabled = false and push to pause: running waves finish, no new wave is dispatched.
+# CURRENT SETTING: end-to-end test of the machinery (pilot design, test plan, results-test branch).
+enabled = true
+max_waves_in_flight = 1
+max_parallel_per_wave = 6
+max_jobs_per_wave = 6
+design = "study/design-pilot.toml"
+blocks = "study/blocks-test.csv"
+results_branch = "results-test"

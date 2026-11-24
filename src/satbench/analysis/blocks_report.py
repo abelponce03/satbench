@@ -135,3 +135,97 @@ def generalisation_gap(paired: pd.DataFrame, n_boot: int = 10_000, seed: int = 0
     if len(res):
         res["p_holm"] = holm(res.p_one_sided.to_numpy())
     return res
+
+
+# ------------------------------------------------------------------ Amendment 1 (plan §6.2)
+
+
+def host_ips(df: pd.DataFrame) -> pd.Series:
+    """Instructions per CPU-second of each job's host, from its solo calibration runs."""
+    cal = df[(df.kind == "calibration") & df.when.isin(["start", "end"])].dropna(subset=["instructions"])
+    cal = cal[cal.cpu_time > 0]
+    return (cal.instructions / cal.cpu_time).groupby(cal.job).median()
+
+
+def instruction_budget(df: pd.DataFrame, timeout: float, safety: float = 0.95,
+                       jobs: pd.Index | None = None) -> float:
+    """B = safety × timeout × min IPS over (retained) hosts: a budget every host can reach."""
+    ips = host_ips(df)
+    if jobs is not None:
+        ips = ips[ips.index.isin(jobs)]
+    return float(safety * timeout * ips.min())
+
+
+def instruction_par2(paired_runs: pd.DataFrame, budget: float) -> pd.DataFrame:
+    """Host-invariant outcome (§6.2.1): solved within B instructions, instruction-PAR-2.
+
+    Expects one row per run with ``status`` and ``instructions``. Runs without a count
+    (counter unavailable) get NaN and are dropped by the paired analyses.
+    """
+    r = paired_runs.copy()
+    solved = r.status.isin(SOLVED) & (r.instructions <= budget)
+    r["solved_b"] = solved
+    r["ipar2"] = np.where(solved, r.instructions, 2 * budget)
+    r.loc[r.instructions.isna(), "ipar2"] = np.nan
+    return r
+
+
+def horizon_curve(paired: pd.DataFrame, horizons: np.ndarray) -> pd.DataFrame:
+    """r(T') per unit: PAR-2 recomputed at every horizon T' <= T from the same runs (§6.2.5).
+
+    Needs ``cpu_time_a``/``cpu_time_b`` and ``solved_a``/``solved_b`` from :func:`paired_table`.
+    """
+    out = []
+    orig = paired[paired.variant == "original"]
+    for unit, d in orig.groupby("unit"):
+        for h in horizons:
+            pa = np.where(d.solved_a & (d.cpu_time_a <= h), d.cpu_time_a, 2 * h)
+            pb = np.where(d.solved_b & (d.cpu_time_b <= h), d.cpu_time_b, 2 * h)
+            diff = pa - pb
+            out.append(dict(unit=unit, horizon=float(h), n=len(d),
+                            r_rb=rank_biserial(diff, np.zeros_like(diff))))
+    return pd.DataFrame(out)
+
+
+def encoding_variance(runs: pd.DataFrame, timeout: float) -> pd.DataFrame:
+    """Within- vs between-instance variance of log CPU time over order encodings (§6.2.2).
+
+    Uses, per solver, instances run in the original and in >= 2 rcl encodings. One-way random
+    effects ANOVA estimator of the ICC; also the within-instance SD (the "encoding noise floor")
+    on the log scale. Times are capped at the timeout (censored runs enter at the cap, which
+    underestimates within variance; reported as such).
+    """
+    r = runs[(runs.kind == "run") & (runs.variant.isin(["original"]) | runs.variant.str.endswith("-rcl"))]
+    r = r.assign(logt=np.log(np.clip(r.cpu_time.astype(float), 0.01, timeout)))
+    out = []
+    for solver, d in r.groupby("solver"):
+        g = d.groupby("origin_hash").logt
+        k = g.size()
+        d = d[d.origin_hash.isin(k[k >= 3].index)]
+        if d.origin_hash.nunique() < 3:
+            continue
+        g = d.groupby("origin_hash").logt
+        n_i, means = g.size(), g.mean()
+        within = ((d.logt - d.origin_hash.map(means)) ** 2).sum() / (len(d) - len(n_i))
+        n0 = (len(d) - (n_i**2).sum() / len(d)) / (len(n_i) - 1)
+        between = max(((n_i * (means - d.logt.mean()) ** 2).sum() / (len(n_i) - 1) - within) / n0, 0.0)
+        out.append(dict(solver=solver, instances=len(n_i), runs=len(d),
+                        sd_within_log=float(np.sqrt(within)), sd_between_log=float(np.sqrt(between)),
+                        icc=float(between / (between + within)) if between + within > 0 else np.nan))
+    return pd.DataFrame(out)
+
+
+def flip_rate(paired: pd.DataFrame) -> pd.DataFrame:
+    """Share of instances whose paired winner (a vs b) differs between the original and an
+    order-perturbed encoding: the 'encoding noise floor' of the unit's comparison (§6.2.2)."""
+    w = paired.assign(winner=np.sign(paired.par2_a - paired.par2_b))
+    piv = w.pivot_table(index=["unit", "origin_hash"], columns="variant", values="winner")
+    rows = []
+    for unit, d in piv.groupby(level="unit"):
+        for v in [c for c in d.columns if c.endswith("-rcl")]:
+            both = d[["original", v]].dropna()
+            decided = both[(both.original != 0) | (both[v] != 0)]
+            if len(decided):
+                rows.append(dict(unit=unit, variant=v, n=len(decided),
+                                 flip_rate=float((decided.original != decided[v]).mean())))
+    return pd.DataFrame(rows)
