@@ -24,6 +24,8 @@ from pathlib import Path
 
 import psutil
 
+from .perfcount import open_counters, read_counters
+
 
 @dataclass(frozen=True)
 class Limits:
@@ -45,6 +47,18 @@ class Measurement:
     peak_rss_mb: float
     returncode: int | None
     signal: int | None
+    instructions: int | None = None  # retired user-space instructions, whole process tree
+    cycles: int | None = None
+    process_cpu: dict[str, float] | None = None  # sampled CPU seconds per executable
+
+
+def _exe_tail(p: psutil.Process) -> str:
+    """Last three path components of the executable (identifies e.g. which sub-solver ran)."""
+    try:
+        exe = p.exe() or p.name()
+    except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
+        return "?"
+    return "/".join(Path(exe).parts[-3:])
 
 
 def _tree(proc: psutil.Process) -> list[psutil.Process]:
@@ -70,13 +84,19 @@ def _vm_hwm_kib(pid: int) -> int:
     return 0
 
 
-def _sample(procs: list[psutil.Process]) -> tuple[float, float, float]:
-    """(CPU seconds, current RSS MB, sum of per-process peak RSS MB) over the tree."""
+def _sample(procs: list[psutil.Process], per_pid: dict | None = None) -> tuple[float, float, float]:
+    """(CPU seconds, current RSS MB, sum of per-process peak RSS MB) over the tree.
+
+    ``per_pid`` (pid -> [exe tail, max CPU seen]) accumulates the per-executable breakdown.
+    """
     cpu = rss = hwm = 0.0
     for p in procs:
         try:
             t = p.cpu_times()
             cpu += t.user + t.system
+            if per_pid is not None:
+                entry = per_pid.setdefault(p.pid, [_exe_tail(p), 0.0])
+                entry[1] = max(entry[1], t.user + t.system)
             rss += p.memory_info().rss
             hwm += _vm_hwm_kib(p.pid) * 1024
         except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
@@ -116,7 +136,9 @@ def execute(
             cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, cwd=cwd,
             start_new_session=True, preexec_fn=preexec,
         )
+        counters = open_counters(proc.pid)  # None-safe: empty if the host forbids it
         ps = psutil.Process(proc.pid)
+        per_pid: dict[int, list] = {}
         peak_rss, sampled_cpu, limit_hit = 0.0, 0.0, ""
         status = rusage = None
         while True:
@@ -124,7 +146,7 @@ def execute(
             if pid:
                 status, rusage = st, ru
                 break
-            cpu, rss, hwm = _sample(_tree(ps))
+            cpu, rss, hwm = _sample(_tree(ps), per_pid)
             sampled_cpu, peak_rss = max(sampled_cpu, cpu), max(peak_rss, rss, hwm)
             elapsed = time.monotonic() - start
             if not limit_hit:
@@ -139,6 +161,7 @@ def execute(
             time.sleep(limits.poll_seconds)
         wall = time.monotonic() - start
         proc.returncode = os.waitstatus_to_exitcode(status)  # keep Popen consistent
+        hw = read_counters(counters) if counters else {}
 
     try:  # descendants that outlived the leader
         os.killpg(proc.pid, signal.SIGKILL)
@@ -149,6 +172,9 @@ def execute(
     if not limit_hit and cpu_time > limits.cpu_seconds:
         limit_hit = "cpu"  # finished between two samples, but after the limit
     rc = proc.returncode
+    breakdown: dict[str, float] = {}
+    for exe, c in per_pid.values():
+        breakdown[exe] = round(breakdown.get(exe, 0.0) + c, 3)
     return Measurement(
         limit_hit=limit_hit,
         cpu_time=cpu_time,
@@ -156,4 +182,7 @@ def execute(
         peak_rss_mb=peak_rss,
         returncode=rc if rc is not None and rc >= 0 else None,
         signal=-rc if rc is not None and rc < 0 else None,
+        instructions=hw.get("instructions"),
+        cycles=hw.get("cycles"),
+        process_cpu=breakdown,
     )

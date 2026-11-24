@@ -100,7 +100,13 @@ def test_run_job_end_to_end(tmp_path):
     cal = [r for r in recs if r["kind"] == "calibration"]
     assert len(runs) == 2 * len(blocks) and {r["status"] for r in runs} == {"SAT"}
     assert {r["variant"] for r in runs} == {"original", "s1-rcl", "s1-f"}
-    assert len(cal) == 4 * blocks.job.nunique()  # start + end, on both cores
+    # start + end on each core, plus one concurrent pair at the start
+    assert len(cal) == 6 * blocks.job.nunique()
+    assert sum(c["when"] == "start-concurrent" for c in cal) == 2 * blocks.job.nunique()
+    feats = [r for r in recs if r["kind"] == "features"]
+    assert {f["variant"] for f in feats} == {"original", "s1-rcl", "s1-f"}
+    assert all(f["features"].get("clauses") == 2.0 for f in feats)  # perturbation keeps size
+    assert all("process_cpu" in r and "solver_comments" in r for r in runs)
     by_block = pd.DataFrame(runs).groupby("block_id")
     assert (by_block.cpus.apply(lambda c: len({tuple(x) for x in c})) == 2).all()  # two cores
     assert all(r["host_cpu_model"] for r in recs if r["kind"] != "block")

@@ -71,6 +71,9 @@ jobs:
       credentials:  # the image package may be private; the job token can read it
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+      # CAP_PERFMON: lets the harness count retired instructions/cycles of its own child
+      # processes (perf_event_open, user space only). Nothing else is granted.
+      options: --cap-add=PERFMON
     strategy:
       fail-fast: false
       max-parallel: ${{ fromJSON(inputs.max_parallel) }}
@@ -83,6 +86,8 @@ jobs:
           HOME: /tmp
           JOB: ${{ matrix.job }}
           BLOCKS: ${{ inputs.blocks_file }}
+          # harness code from this commit (recorded as GITHUB_SHA); solver binaries from the image
+          PYTHONPATH: ${{ github.workspace }}/src
         run: |
           satbench blocks-run --design study/design.toml --blocks "$BLOCKS" \
             --jobs "$JOB" --solvers-dir /opt/solvers --instances /tmp/instances \

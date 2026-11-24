@@ -70,8 +70,9 @@ def parse_variant(tag: str):
                         shuffle_clauses="c" in kinds, shuffle_literals="l" in kinds)
 
 
-def block_id(unit: tuple[str, str], origin_hash: str, variant: str) -> str:
-    return hashlib.sha256(f"{unit[0]}|{unit[1]}|{origin_hash}|{variant}".encode()).hexdigest()[:16]
+def block_id(unit: tuple[str, str], origin_hash: str, variant: str, replicate: int = 0) -> str:
+    key = f"{unit[0]}|{unit[1]}|{origin_hash}|{variant}" + (f"|rep{replicate}" if replicate else "")
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
 def plan_blocks(instances: pd.DataFrame, design: Design) -> pd.DataFrame:
@@ -89,7 +90,11 @@ def plan_blocks(instances: pd.DataFrame, design: Design) -> pd.DataFrame:
     for name, grp in instances.groupby("instance_set"):
         cfg = sets.get(name, {})
         ranked = sorted(grp.hash, key=lambda h: rank_key(design.raw.get("selection_seed", 0) + 1, h))
-        perturbed = set(ranked[: int(round(len(ranked) * cfg.get("perturb_fraction", 0.0)))])
+        perturbed_list = ranked[: int(round(len(ranked) * cfg.get("perturb_fraction", 0.0)))]
+        perturbed = set(perturbed_list)
+        # extra perturbation seeds on a sub-subsample: within-instance encoding variance
+        extra_cfg = design.raw.get("extra_perturbations", {})
+        extra = set(perturbed_list[: int(round(len(perturbed_list) * extra_cfg.get("fraction_of_perturbed", 0.0)))])
         for r in grp.itertuples():
             for u in design.units:
                 if u["role"] != "primary" and not cfg.get("context_units", False):
@@ -97,13 +102,26 @@ def plan_blocks(instances: pd.DataFrame, design: Design) -> pd.DataFrame:
                 variants = ["original"]
                 if u["role"] == "primary" and r.hash in perturbed:
                     variants += design.perturbations
+                    if r.hash in extra:
+                        variants += extra_cfg.get("variants", [])
                 for v in variants:
                     key = (u["a"], u["b"])
                     rows.append(dict(
                         block_id=block_id(key, r.hash, v), solver_a=u["a"], solver_b=u["b"],
                         role=u["role"], origin_hash=r.hash, family=r.family, variant=v,
-                        known_result=getattr(r, "result", "unknown"), instance_set=name))
+                        known_result=getattr(r, "result", "unknown"), instance_set=name,
+                        replicate_of=""))
     blocks = pd.DataFrame(rows)
+    # Test-retest replicates: the same block again, on a different (random) host.
+    rep_frac = design.raw.get("replicate_fraction", 0.0)
+    if rep_frac:
+        ranked_blocks = sorted(blocks.block_id, key=lambda b: rank_key(design.raw.get("selection_seed", 0) + 3, b))
+        chosen = set(ranked_blocks[: int(round(len(blocks) * rep_frac))])
+        reps = blocks[blocks.block_id.isin(chosen)].copy()
+        reps["replicate_of"] = reps.block_id
+        reps["block_id"] = [block_id((a, b), h, v, 1) for a, b, h, v in
+                            zip(reps.solver_a, reps.solver_b, reps.origin_hash, reps.variant)]
+        blocks = pd.concat([blocks, reps], ignore_index=True)
     seed = design.raw.get("packing_seed", 0)
     order = random.Random(seed).sample(range(len(blocks)), len(blocks))
     blocks = blocks.iloc[order].reset_index(drop=True)
@@ -128,7 +146,18 @@ def host_info() -> dict:
         avx2="avx2" in flags, avx512f="avx512f" in flags,
         ci_run=os.environ.get("GITHUB_RUN_ID", ""), ci_job=os.environ.get("GITHUB_JOB", ""),
         runner=os.environ.get("RUNNER_NAME", ""),
+        harness_commit=os.environ.get("GITHUB_SHA", ""),
+        hw_counters=_counters_available(),
     )
+
+
+def _counters_available() -> bool:
+    from .runner.perfcount import available
+
+    try:
+        return available()[0]
+    except Exception:
+        return False
 
 
 class InstanceCache:
@@ -217,7 +246,46 @@ def run_job(blocks: pd.DataFrame, job: int, design: Design, solvers_dir: Path, c
             rec.update(kind="calibration", when=when)
             emit(rec)
 
+    def calibrate_concurrent() -> None:
+        """Both cores at once: the slowdown versus the solo runs measures how much two
+        concurrent runs on this host interfere (shared cache, memory bandwidth)."""
+        path, h = cache.get(design.calibration_instance, calibration_family, "original")
+        row = pd.Series(dict(family=calibration_family, known_result="unknown",
+                             origin_hash=design.calibration_instance))
+        recs: list[dict] = [{}, {}]
+
+        def go(k: int, cpus: set[int]) -> None:
+            spec = _spec(design.calibration_solver, solvers_dir, path, h, row, "original",
+                         context=f"calibration:{job}:concurrent:{k}")
+            recs[k] = run(spec, limits, logdir, cpus=cpus)
+
+        ts = [threading.Thread(target=go, args=(k, c)) for k, c in enumerate((core_a, core_b))]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        for rec in recs:
+            rec.update(kind="calibration", when="start-concurrent")
+            emit(rec)
+
+    featured: set[str] = set()
+
+    def emit_features(path: Path, h: str, row) -> None:
+        """GBD base features of the exact file run (once per file and job)."""
+        if h in featured:
+            return
+        featured.add(h)
+        try:
+            import gbdc
+
+            feats = {k: float(v) for k, v in dict(gbdc.extract_base_features(str(path))).items()}
+        except Exception as exc:
+            feats = {"error": f"{type(exc).__name__}: {exc}"}
+        emit(dict(kind="features", instance_hash=h, origin_hash=row.origin_hash,
+                  variant=row.variant, family=row.family, features=feats))
+
     calibrate("start")
+    calibrate_concurrent()
     done = _done(results)
     mine = blocks[blocks.job == job]
     completed = 0
@@ -228,6 +296,7 @@ def run_job(blocks: pd.DataFrame, job: int, design: Design, solvers_dir: Path, c
         if remaining < 1.5 * design.timeout + 300:  # leave room for the final calibration
             break  # the block stays pending and is picked up by a later job
         path, h = cache.get(row.origin_hash, row.family, row.variant)
+        emit_features(path, h, row)
         specs = [_spec(s, solvers_dir, path, h, row, row.variant, context=row.block_id)
                  for s in (row.solver_a, row.solver_b)]
         rng = random.Random(row.block_id)
@@ -246,7 +315,8 @@ def run_job(blocks: pd.DataFrame, job: int, design: Design, solvers_dir: Path, c
             t.join()
         for i, rec in enumerate(recs):
             rec.update(kind="run", block_id=row.block_id, unit=f"{row.solver_a}|{row.solver_b}",
-                       member="a" if i == 0 else "b", instance_set=row.instance_set)
+                       member="a" if i == 0 else "b", instance_set=row.instance_set,
+                       replicate_of=getattr(row, "replicate_of", "") or "")
             emit(rec)
         emit(dict(kind="block", block_id=row.block_id, block_complete=True))
         completed += 1

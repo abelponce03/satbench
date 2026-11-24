@@ -1,0 +1,41 @@
+# Quick capability probe of GitHub-hosted runners: CPU, topology and hardware counters.
+name: probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "solver image by digest"
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --cap-add=PERFMON
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          grep -m1 -o 'avx512f' /proc/cpuinfo || echo "no avx512f"
+          nproc
+          cat /sys/devices/system/cpu/cpu0/topology/thread_siblings_list
+          python - <<'PY'
+          from satbench.runner.perfcount import available
+          from satbench.runner.batch import physical_cores
+          print("physical cores:", physical_cores())
+          for i in range(3):
+              print("counters:", available())
+          PY

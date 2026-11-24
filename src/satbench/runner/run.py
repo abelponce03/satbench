@@ -74,6 +74,19 @@ def decompress(src: Path, workdir: Path) -> Path:
     return dst
 
 
+def comment_excerpt(text: str, head: int = 60, tail: int = 60, width: int = 200) -> list[str]:
+    """First and last comment lines ('c ...') of the solver output, truncated.
+
+    Solvers report configuration, preprocessing results, dispatch decisions and statistics in
+    comment lines. Keeping an excerpt in every record preserves them even when full logs are
+    discarded to keep CI artifacts small. Model lines ('v ...') are never kept.
+    """
+    lines = [ln[:width] for ln in text.splitlines() if ln.startswith("c ")]
+    if len(lines) <= head + tail:
+        return lines
+    return [*lines[:head], f"c [satbench: {len(lines) - head - tail} lines omitted]", *lines[-tail:]]
+
+
 def link_farm(solver_dir: Path, workdir: Path) -> Path:
     """A per-run directory of symlinks to the solver's top-level entries.
 
@@ -136,6 +149,8 @@ def run(spec: RunSpec, limits: Limits, logdir: Path, cpus: set[int] | None = Non
             answer = EXIT_CODES[m.returncode]
 
         record.update(asdict(m))
+        record["solver_comments"] = comment_excerpt(text)
+        record["stderr_tail"] = err.read_text(errors="replace").splitlines()[-20:]
         stats = solver.parse_stats(text)
         record["metrics"] = canonical(stats, solver.aliases)
         record["raw_stats"] = stats
