@@ -1,0 +1,146 @@
+# Solvers of the study. Every source is pinned by SHA-256 (archives) or commit (git).
+#
+# mode = "competition": the solver's own SAT Competition run.sh is invoked unchanged,
+#        as `run.sh <instance.cnf> <outdir>`; UNSAT proofs are written exactly as in the
+#        competition, and every solver of this mode pays that cost equally.
+# mode = "binary":      a single executable, called through a solver-family spec
+#        (seeds and parameters supported; used for ablations and thesis continuity).
+#
+# ai = "none" | "tuned" | "generated"  (as declared to the SAT Competition 2026
+#      AI sub-tracks, or by the authors' own description for 2025)
+# base = the human-designed solver the AI variant was derived from, when one is in the study.
+# exposure = which instances the solver's developers could have used (see docs/exposure.md).
+
+[build]
+# Machine-specific CPU targets (-march=native, -march=icelake-server) are rewritten to this ISA
+# level so every binary runs on every execution host (GitHub runners: AMD EPYC 7763 / Intel Xeon
+# 8370C). Solvers that set no CPU target keep their own flags. See build-report.json.
+portable_march = "x86-64-v3"
+
+[archives]
+"gh-kissat-rel-4.0.2"     = { url = "https://github.com/arminbiere/kissat/archive/refs/tags/rel-4.0.2.tar.gz", sha256 = "a8e58a70ebac09ccc0ba1465a69cfb9b31e562167d42df7535270d2733c386d7" }
+sc2025-AE_kissat2025_MAB = { url = "https://satcompetition.github.io/2025/downloads/solvers/main/AE_kissat2025_MAB.tar.xz", sha256 = "069cc73be6ca20e2d1f22cf63dec858026deab041bf3b98bfa20c6676697013c" }
+sc2025-kissat-public     = { url = "https://satcompetition.github.io/2025/downloads/solvers/main/kissat-public.tar.xz", sha256 = "89a07d496eca8ca1676590dbfd9714bc5c6f706095f0d56370e372583025b9fc" }
+sc2026-anders  = { url = "https://satcompetition.github.io/2026/downloads/solvers/anders.tar.xz",  sha256 = "1951097402831eaaa9cdd6b670a09b9e9cbe1714e16d48b17d420e3b40816623" }
+sc2026-biere   = { url = "https://satcompetition.github.io/2026/downloads/solvers/biere.tar.xz",   sha256 = "69fbdae7a9a0a96955ea953976257712388834fca7000a844d3d736b61d8b3f3" }
+sc2026-ding    = { url = "https://satcompetition.github.io/2026/downloads/solvers/ding.tar.xz",    sha256 = "36d59b1df4a6ddb4c31303010729851eec1d1f0d8d54b413ac1ef952dc3d3966" }
+sc2026-gopalan = { url = "https://satcompetition.github.io/2026/downloads/solvers/gopalan.tar.xz", sha256 = "1f6723af51673c2103245181928adb60f61302b87fca0237b57e9d0981528a9e" }
+sc2026-green   = { url = "https://satcompetition.github.io/2026/downloads/solvers/green.tar.xz",   sha256 = "7bc2ad3278197261cee221fd8c2dd583069821213f31d63e6873495000713c70" }
+sc2026-zheng   = { url = "https://satcompetition.github.io/2026/downloads/solvers/zheng.tar.xz",   sha256 = "398d9eb8dce74b4d5d185384b41ffb39580639b068c9ac23eec48cf8f15f42ec" }
+sc2026-zhenwei = { url = "https://satcompetition.github.io/2026/downloads/solvers/zhenwei.tar.xz", sha256 = "660cb5a001f5fd2594335b57de3b4cb197797ba3680eeb1aefc8daf0edc2dd27" }
+
+# ---------------------------------------------------------------- human-designed
+
+[solvers."kissat-4.0.2"]
+archive = "gh-kissat-rel-4.0.2"
+path = "kissat-rel-4.0.2"
+mode = "competition"
+ai = "none"
+build = "./configure --competition && make kissat && cp build/kissat ./kissat"
+run_sh = '''#!/bin/bash
+# Same invocation as the AE_kissat2025_MAB package: instance, proof file.
+exec ./kissat "$1" "$2/proof.out"
+'''
+note = "official Kissat 4.0.2: declared base of LymphoSAT's fallback and of AE_kissat2025_MAB's lineage"
+
+[solvers.kissat-sc2026]
+archive = "sc2026-biere"
+path = "biere/kissat/src"
+mode = "competition"
+ai = "none"
+note = "Biere et al. reference Kissat as submitted to SAT Competition 2026"
+
+[solvers.cadical3-sc2026]
+archive = "sc2026-biere"
+path = "biere/cadical3/src"
+mode = "competition"
+ai = "none"
+
+[solvers.satsuma-iter-kissat]
+archive = "sc2026-anders"
+path = "anders/satsuma-iter-kissat/src"
+mode = "competition"
+ai = "none"
+note = "Main Track 2026 winner (276 solved)"
+
+[solvers.kissat-mab-hypre]
+archive = "sc2026-zheng"
+path = "zheng/kissat-mab-hypre/src"
+mode = "competition"
+ai = "none"
+note = "human base of the two zheng AI variants"
+
+[solvers.mergesat]
+archive = "sc2026-zhenwei"
+path = "zhenwei/mergesat/src"
+mode = "competition"
+ai = "none"
+note = "human base of mergesat-l"
+
+[solvers.kissat-public-sc2025]
+archive = "sc2025-kissat-public"
+path = "kissat-public"
+pre_build = "rm -rf .git"  # partial .git in the archive makes the build-header script call git
+mode = "binary"
+family = "kissat"
+build = "./configure && make kissat"  # not --competition: that build rejects every option, incl. --seed
+binary = "build/kissat"
+ai = "none"
+
+# ---------------------------------------------------------------- AI-tuned / AI-generated
+
+[solvers.ae-kissat-mab-sc2025]
+archive = "sc2025-AE_kissat2025_MAB"
+path = "AE_kissat2025_MAB"
+pre_build = "rm -rf .git"  # partial .git in the archive makes the build-header script call git
+mode = "competition"
+ai = "tuned"
+note = "Main Track 2025 winner; AESAT (DeepSeek-R1) on Kissat 4.0.2 MAB; trained on 60 instances of main_2024"
+
+[solvers.kissat-mab-hypre-evolve]
+archive = "sc2026-zheng"
+path = "zheng/kissat-mab-hypre-evolve/src"
+mode = "competition"
+ai = "tuned"
+base = "kissat-mab-hypre"
+
+[solvers.kissat-mab-hypre-satlution]
+archive = "sc2026-zheng"
+path = "zheng/kissat-mab-hypre-satlution/src"
+mode = "competition"
+ai = "tuned"
+base = "kissat-mab-hypre"
+
+[solvers.mergesat-l]
+archive = "sc2026-zhenwei"
+path = "zhenwei/mergesat-l/src"
+mode = "competition"
+ai = "generated"
+base = "mergesat"
+
+[solvers.kissat-evolve-rb]
+archive = "sc2026-gopalan"
+path = "gopalan/kissat-evolve-rb/src"
+mode = "competition"
+ai = "generated"
+note = "KissatEvolve (gemini-3.1-pro-preview coder); evaluated on 2025 benchmark instances"
+
+[solvers.kissat-mab-eae1]
+archive = "sc2026-ding"
+path = "ding/kissat-mab-eae1/src"
+mode = "competition"
+ai = "generated"
+base = "ae-kissat-mab-sc2025"
+note = "EAE framework; 100% of changes from AE_kissat2025_MAB generated by AI"
+
+[solvers.lymphosat]
+archive = "sc2026-green"
+path = "green/lymphosat/src"
+pre_build = "rm -rf solver/.build solver/.build-generic"  # stale CMake caches from the organisers' machine
+# The random-circuits sub-solver uses AVX-512 intrinsics unconditionally (agent-written, targeting
+# the competition's Ice Lake workers); it is built exactly as authored. On hosts without AVX-512 it
+# cannot execute, and what LymphoSAT then does is part of the measurement (docs/exposure.md).
+portable_exempt = ["solver/solvers/random-circuits/solver/build.sh"]
+mode = "competition"
+ai = "generated"
+note = "126 family-targeted solvers synthesised by coding agents from 80% of every GBD family; fallback Kissat 4.0.2"

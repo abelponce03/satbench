@@ -1,0 +1,56 @@
+# Build the solver image (all solvers compiled from source, offline) and publish it to GHCR.
+# Run once per change of solvers/manifest.toml; every benchmark job then uses the same digest.
+name: solver-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "image tag"
+        required: true
+        default: "2026.11"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Validate tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: '[[ "$TAG" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || { echo "invalid tag"; exit 1; }'
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.4"
+      - name: Fetch and verify solver archives (SHA-256 pinned in the manifest)
+        run: uv run python -m satbench.solvers.build fetch --manifest solvers/manifest.toml --cache solvers/archives
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push (solver builds run with --network=none inside the Dockerfile)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: solvers/Dockerfile
+          target: solvers
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/satbench-solvers:${{ inputs.tag }}
+          allow: network.host
+      - name: Record image digest
+        env:
+          OWNER: ${{ github.repository_owner }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: echo "ghcr.io/${OWNER,,}/satbench-solvers@${DIGEST}" | tee image-digest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-digest
+          path: image-digest.txt

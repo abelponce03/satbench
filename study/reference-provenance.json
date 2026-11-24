@@ -1,0 +1,38 @@
+{
+  "sc2026_scores.csv": {
+    "url": "https://satcompetition.github.io/2026/downloads/scores.csv",
+    "sha256": "c00d4137bc602b0cc431e52cca02e989ef4abf4c6197cd70b42abedf6c7a4d4e",
+    "bytes": 1262695,
+    "retrieved_utc": "2026-11-24T19:20:03+00:00"
+  },
+  "sc2026_slides.pdf": {
+    "url": "https://satcompetition.github.io/2026/downloads/satcomp26slides.pdf",
+    "sha256": "f1b564c474d5f2f2cf726a399c80afa204748608220f655dca7758c6af33e2c6",
+    "bytes": 1891566,
+    "retrieved_utc": "2026-11-24T19:20:03+00:00"
+  },
+  "sc2026_proceedings.pdf": {
+    "url": "https://repositum.tuwien.at/bitstream/20.500.12708/232006/2/Fazekas-2026-Proceedings%20of%20SAT%20Competition%202026%20%20Solver%20and%20Benchmark%20De...-vor.pdf",
+    "sha256": "c88fd4748e8a944329d83304ab457ef733ca880f69a1390bccb0b185b5284884",
+    "bytes": 1786402,
+    "retrieved_utc": "2026-11-24T19:20:14+00:00"
+  },
+  "sc2026_track_main.uri": {
+    "url": "https://satcompetition.github.io/2026/downloads/track_main_2026.uri",
+    "sha256": "d4e5d76862bc5e8825e495a4f6b05163fc2ab4d706de0a3fd3defacf7808b995",
+    "bytes": 26799,
+    "retrieved_utc": "2026-11-24T19:20:16+00:00"
+  },
+  "sc2025_slides.pdf": {
+    "url": "https://satcompetition.github.io/2025/satcomp25slides.pdf",
+    "sha256": "43e5335be0584e937c17a7b2fe89a6de15b1a742e5b926fc4bab7034aa6b7906",
+    "bytes": 1056144,
+    "retrieved_utc": "2026-11-24T19:20:27+00:00"
+  },
+  "aesat_ijcai2026.pdf": {
+    "url": "https://www.ijcai.org/proceedings/2026/0257.pdf",
+    "sha256": "cd731a5bf1653c9b5e81e6e1df88e7f94ea352a29c4a6cf9b024638f6a21751c",
+    "bytes": 268271,
+    "retrieved_utc": "2026-11-24T19:20:33+00:00"
+  }
+}

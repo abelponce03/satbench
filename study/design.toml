@@ -1,0 +1,96 @@
+# Experimental design of the study (fixed before any measurement; see study/analysis_plan.md).
+
+timeout = 5000              # CPU seconds per run, as in the SAT Competition main track
+memory_mb = 7000            # per run; two concurrent runs share a 16 GB CI host
+blocks_per_job = 4          # a job stops starting blocks once one more might not fit (see below)
+job_budget_seconds = 20700  # 5 h 45 min of the 6 h CI job limit
+selection_seed = 2027       # instance sampling (hash rank)
+packing_seed = 4049         # random assignment of blocks to jobs / hosts
+
+# Variant tags "s<seed>-<kinds>": r = rename variables, f = flip polarities, c = shuffle clauses,
+# l = shuffle literals. A pilot (8 instances, 2 solvers) showed the two families of change act
+# differently: polarity flips alone slowed both solvers ~60x on SAT argumentation instances
+# (default-phase effect), while order changes alone removed the 2026 winner's advantage on
+# graph colouring (symmetry handling depends on presentation order). They are measured separately.
+perturbations = ["s1-rcl", "s1-f"]
+
+# Units = solver pairs run concurrently on one host, one physical core each.
+# role = "primary":   isolates an AI modification (same author / declared base). All sets;
+#                     perturbed variants on the perturbation subsample.
+# role = "secondary": AI solver against an approximate base. Originals of the exposure sets.
+# role = "reference": human state of the art, for context. Originals of the exposure sets.
+[[units]]
+a = "kissat-mab-hypre"
+b = "kissat-mab-hypre-evolve"
+role = "primary"
+note = "AI-tuned (SC2026 AI sub-track), declared base"
+
+[[units]]
+a = "kissat-mab-hypre"
+b = "kissat-mab-hypre-satlution"
+role = "primary"
+note = "AI-tuned with SATLUTION (SC2026 AI sub-track), declared base"
+
+[[units]]
+a = "mergesat"
+b = "mergesat-l"
+role = "primary"
+note = "LLM-generated heuristics, tuned on SC2024/2025 main tracks"
+
+[[units]]
+a = "ae-kissat-mab-sc2025"
+b = "kissat-mab-eae1"
+role = "primary"
+note = "100% AI-generated changes (EAE) on top of the SC2025 winner"
+
+[[units]]
+a = "kissat-4.0.2"
+b = "lymphosat"
+role = "primary"
+note = "agent-synthesised family solvers (trained on 80% of every GBD family) vs fallback base"
+
+[[units]]
+a = "kissat-sc2026"
+b = "kissat-evolve-rb"
+role = "secondary"
+note = "KissatEvolve; exact base version not declared, reference Kissat used"
+
+[[units]]
+a = "satsuma-iter-kissat"
+b = "cadical3-sc2026"
+role = "reference"
+note = "SC2026 main-track winner vs CaDiCaL 3"
+
+[calibration]
+# Fixed solver and instance, run on both cores at the start and end of every job. The instance
+# is UNSAT (runtime less dependent on search luck than SAT) and took kissat 57 s in SC2026.
+# It is excluded from the study instances.
+solver = "kissat-sc2026"
+instance = "b023ea0eb9adbd9182c01d7e2d443289"  # cardinality-constraints, UNSAT; 57 s for kissat in SC2026
+
+# Instance sets by exposure (see docs/exposure.md).
+# perturb_fraction = share of the set (fixed hash-ranked subsample) that also gets perturbed variants.
+# context_units = whether secondary/reference units also run on this set.
+[instance_sets.clean2026]
+n = 240
+per_family = 12
+perturb_fraction = 0.25
+context_units = true
+
+[instance_sets.aesat_train]
+perturb_fraction = 0.25
+context_units = true
+
+[instance_sets.comp2425]
+n = 120
+per_family = 6
+perturb_fraction = 0.25
+context_units = true
+
+[instance_sets.legacy]
+n = 54
+per_family = 6
+perturb_fraction = 0.0
+context_units = false
+families = ["miter", "station-repacking", "planning", "scheduling", "software-verification",
+            "cryptography", "hardware-verification", "bitvector", "argumentation"]

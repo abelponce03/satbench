@@ -1,0 +1,102 @@
+# Execute a range of jobs of the blocked design (study/blocks.csv) on GitHub-hosted runners.
+# Each matrix job = one host: calibration, up to `blocks_per_job` blocks (two solvers in
+# parallel, one physical core each), calibration. Results are uploaded as artifacts and collected
+# with `scripts/collect.sh`. A GitHub workflow run holds at most 256 matrix jobs, so the study is
+# dispatched in ranges (scripts/dispatch.sh).
+#
+# Only users with write access can dispatch this workflow; inputs are still passed through
+# environment variables and validated, never interpolated into shell code.
+name: blocks
+
+on:
+  workflow_dispatch:
+    inputs:
+      first:
+        description: "first job number"
+        required: true
+      last:
+        description: "last job number (inclusive, at most first+255)"
+        required: true
+      image:
+        description: "solver image by digest, e.g. ghcr.io/OWNER/satbench-solvers@sha256:..."
+        required: true
+      max_parallel:
+        description: "concurrent jobs (be considerate with shared CI capacity)"
+        required: true
+        default: "10"
+      blocks_file:
+        description: "block plan (path inside the repository)"
+        required: true
+        default: "study/blocks.csv"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      jobs: ${{ steps.m.outputs.jobs }}
+    steps:
+      - id: m
+        env:
+          FIRST: ${{ inputs.first }}
+          LAST: ${{ inputs.last }}
+          IMAGE: ${{ inputs.image }}
+          MAXP: ${{ inputs.max_parallel }}
+          BLOCKS: ${{ inputs.blocks_file }}
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os, re, sys
+          first, last, maxp = os.environ["FIRST"], os.environ["LAST"], os.environ["MAXP"]
+          if not all(re.fullmatch(r"\d{1,6}", v) for v in (first, last, maxp)):
+              sys.exit("first/last/max_parallel must be non-negative integers")
+          first, last = int(first), int(last)
+          if not (0 <= last - first < 256):
+              sys.exit("range must contain 1..256 jobs")
+          if not re.fullmatch(r"ghcr\.io/[\w.-]+/satbench-solvers@sha256:[0-9a-f]{64}", os.environ["IMAGE"]):
+              sys.exit("image must be ghcr.io/<owner>/satbench-solvers@sha256:<digest>")
+          if not re.fullmatch(r"study/[\w.-]+\.csv", os.environ["BLOCKS"]):
+              sys.exit("blocks_file must be study/<name>.csv")
+          print("jobs=" + json.dumps(list(range(first, last + 1))))
+          EOF
+
+  run:
+    needs: matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 358
+    container:
+      image: ${{ inputs.image }}
+      credentials:  # the image package may be private; the job token can read it
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_parallel) }}
+      matrix:
+        job: ${{ fromJSON(needs.matrix.outputs.jobs) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run job
+        env:
+          HOME: /tmp
+          JOB: ${{ matrix.job }}
+          BLOCKS: ${{ inputs.blocks_file }}
+        run: |
+          satbench blocks-run --design study/design.toml --blocks "$BLOCKS" \
+            --jobs "$JOB" --solvers-dir /opt/solvers --instances /tmp/instances \
+            --results "results/job-$JOB.jsonl" --logs "logs/job-$JOB"
+      - name: Keep solver logs only for unexpected outcomes (artifact size)
+        if: always()
+        env:
+          JOB: ${{ matrix.job }}
+        run: python3 -m satbench.tools.prune_logs "results/job-$JOB.jsonl" "logs/job-$JOB" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-job-${{ matrix.job }}
+          path: |
+            results/
+            logs/
+          retention-days: 90
