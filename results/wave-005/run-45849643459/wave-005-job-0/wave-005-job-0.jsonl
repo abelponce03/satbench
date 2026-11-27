@@ -1,0 +1,1 @@
+{"kind": "host_rejected", "job": 0, "host_host": "c528ea0a5045", "host_cpu_model": "AMD EPYC 7763 64-Core Processor", "host_logical_cpus": 4, "host_avx2": true, "host_avx512f": false, "host_ci_run": "45849643459", "host_ci_job": "run", "host_runner": "GitHub Actions 1000002575", "host_harness_commit": "16689269190d8070e847f0dee43adbdbd5ff063f", "host_hw_counters": false}
